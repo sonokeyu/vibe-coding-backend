@@ -33,7 +33,15 @@
     <div id="messages"></div>
     <form id="chat-form">
       <textarea id="input" placeholder="描述你想要的页面或修改，如：添加一个暗色导航栏..."></textarea>
-      <button type="submit">发送</button>
+      <div style="display:flex; flex-direction:column; gap:4px; width:140px;">
+        <button type="submit">发送</button>
+        <label style="font-size:11px; display:flex; gap:4px; align-items:center; cursor:pointer;">
+          <input type="checkbox" id="streamToggle" /> 流式
+        </label>
+        <label style="font-size:11px; display:flex; gap:4px; align-items:center; cursor:pointer;">
+          <input type="checkbox" id="rawToggle" /> 原始输出
+        </label>
+      </div>
     </form>
     <div id="status"></div>
     <div style="margin-top:4px; font-size:12px; color:var(--muted);">
@@ -50,7 +58,7 @@
   </div>
 
 <script>
-const API_BASE = localStorage.getItem('vc_api_base') || 'http://127.0.0.1:8000';
+const API_BASE = localStorage.getItem('vc_api_base') || 'http://115.190.179.122:80';
 let sessionId = null;
 let lastCode = '';
 const messagesEl = document.getElementById('messages');
@@ -94,6 +102,10 @@ async function sendMessage(text){
   status('生成中...');
   form.querySelector('button').disabled = true;
   input.disabled = true;
+  const useStream = document.getElementById('streamToggle')?.checked;
+  if(useStream){
+    return sendMessageStream(text, assistantDiv);
+  }
   try {
     const r = await fetch(`${API_BASE}/sessions/${sessionId}/messages`, {
       method:'POST',
@@ -108,8 +120,7 @@ async function sendMessage(text){
       return;
     }
     const data = await r.json();
-    // Override assistant message per requirement
-    assistantDiv.innerHTML = `<span class='role'>Agent</span>已完成，右侧已更新预览`;
+    assistantDiv.innerHTML = `<span class='role'>Agent</span>${escapeHtml(document.getElementById('rawToggle')?.checked ? (data.assistant_message_raw||data.assistant_message) : '已完成，右侧已更新预览')}`;
     updatePreview(data.code);
     showDiff(data.diff);
     status('完成');
@@ -121,6 +132,59 @@ async function sendMessage(text){
     input.disabled = false;
     input.value='';
     input.focus();
+  }
+}
+
+function buildWsUrl(path){
+  if(API_BASE.startsWith('https://')) return API_BASE.replace('https://','wss://') + path;
+  if(API_BASE.startsWith('http://')) return API_BASE.replace('http://','ws://') + path;
+  return 'ws://' + API_BASE + path;
+}
+
+async function sendMessageStream(text, assistantDiv){
+  const rawToggle = document.getElementById('rawToggle');
+  let rawBuffer='';
+  try {
+    const url = buildWsUrl(`/ws/sessions/${sessionId}`);
+    const ws = new WebSocket(url);
+    let finished = false;
+    ws.onopen = () => ws.send(JSON.stringify({type:'user_message', message:text}));
+    ws.onmessage = (ev) => {
+      let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+      switch(msg.type){
+        case 'ack': break;
+        case 'token':
+          rawBuffer += msg.text;
+          if(rawToggle.checked){ assistantDiv.innerHTML = `<span class='role'>Agent</span>${escapeHtml(rawBuffer)}`; }
+          break;
+        case 'assistant_message_complete':
+          if(!rawToggle.checked){ assistantDiv.innerHTML = `<span class='role'>Agent</span>生成完成`; }
+          break;
+        case 'code': updatePreview(msg.code); break;
+        case 'diff': showDiff(msg.diff); break;
+        case 'final':
+          finished = true; status('完成');
+          form.querySelector('button').disabled=false; input.disabled=false; input.value=''; input.focus();
+          ws.close();
+          break;
+        case 'error':
+          assistantDiv.innerHTML = `<span class='role'>Agent</span>错误: ${escapeHtml(msg.detail||'')}`;
+          status('错误');
+          form.querySelector('button').disabled=false; input.disabled=false;
+          ws.close();
+          break;
+      }
+    };
+    ws.onerror = () => {
+      if(!rawBuffer){ assistantDiv.innerHTML = `<span class='role'>Agent</span>连接错误`; }
+      status('连接错误');
+      form.querySelector('button').disabled=false; input.disabled=false;
+    };
+    ws.onclose = () => { if(!finished){ status('中断'); form.querySelector('button').disabled=false; input.disabled=false; } };
+  } catch(e){
+    assistantDiv.innerHTML = `<span class='role'>Agent</span>异常: ${escapeHtml(e.message)}`;
+    status('异常');
+    form.querySelector('button').disabled=false; input.disabled=false;
   }
 }
 
