@@ -137,6 +137,20 @@
 
     /* 预览面板 */
     .preview-wrapper { display:flex; flex-direction:column; gap:14px; flex:1; min-height:0; }
+  .preview-wrapper { position:relative; }
+  .preview-frame-container { position:relative; }
+  .preview-frame-container.generating iframe { filter:blur(2px) brightness(.88); transition:filter .35s var(--ease-1); }
+  .preview-overlay { pointer-events:none; position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:18px; font-size:13px; font-weight:500; letter-spacing:.5px; color:var(--color-text-soft); background:linear-gradient(rgba(10,14,20,.55),rgba(10,14,20,.75)); opacity:0; backdrop-filter:blur(3px) saturate(160%); transition:opacity .35s var(--ease-1); padding:20px; }
+  :root[data-theme="light"] .preview-overlay { background:linear-gradient(rgba(255,255,255,.65),rgba(255,255,255,.8)); }
+  .preview-frame-container.generating .preview-overlay { opacity:1; }
+  .spinner { width:34px; height:34px; border-radius:50%; border:3px solid rgba(var(--color-accent-rgb)/.25); border-top-color:var(--color-accent); animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg);} }
+  .skeleton-bars { display:grid; gap:6px; width:180px; }
+  .skeleton-bars span { display:block; height:8px; border-radius:4px; background:linear-gradient(90deg,rgba(255,255,255,.08),rgba(255,255,255,.02)); overflow:hidden; position:relative; }
+  .skeleton-bars span::after { content:""; position:absolute; inset:0; background:linear-gradient(90deg,transparent,rgba(255,255,255,.6),transparent); animation:shimmer 1.4s infinite; }
+  :root[data-theme="light"] .skeleton-bars span { background:linear-gradient(90deg,rgba(0,0,0,.08),rgba(0,0,0,.03)); }
+  :root[data-theme="light"] .skeleton-bars span::after { background:linear-gradient(90deg,transparent,rgba(255,255,255,.9),transparent); }
+  @keyframes shimmer { 0% { transform:translateX(-100%);} 100% { transform:translateX(100%);} }
     /* 桌面超宽时限制预览内容最大宽度，避免 iframe 过长造成阅读困难 */
     @media (min-width: 960px) {
       #preview-panel .preview-wrapper { max-width:1200px; margin-inline:auto; width:100%; }
@@ -237,7 +251,9 @@
           </div>
           <button id="inspectToggleBtn" type="button" class="btn-inline" aria-pressed="false" title="检查/选择预览元素">检查元素</button>
         </div>
-        <iframe id="preview" title="代码预览" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
+        <div class="preview-frame-container">
+          <iframe id="preview" title="代码预览" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
+        </div>
         <div id="stream-output" aria-label="流式输出" role="region"></div>
       </div>
     </section>
@@ -265,6 +281,8 @@
   const input = qs('#input');
   const statusEl = qs('#status');
   const iframe = qs('#preview');
+  const previewWrapper = qs('.preview-wrapper');
+  const previewFrameContainer = qs('.preview-frame-container');
   const streamOutputEl = qs('#stream-output');
   const sessionTag = qs('#sessionTag');
   const sessionTagDup = qs('#sessionTagDup');
@@ -327,6 +345,35 @@
       try { injectInspector(); if(inspectActive) enableInspectorInFrame(); } catch(e){ /* 注入失败静默 */ }
     }, { once:true });
   }
+  // ===== 预览初始与生成中状态 =====
+  const PLACEHOLDER_HTML = `<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'><title>等待指令</title><meta name='viewport' content='width=device-width,initial-scale=1'/><style>
+    :root { --bg0:#0e131a; --bg1:#141b24; --grad:linear-gradient(135deg,#1e3a8a,#2563eb 55%,#4f46e5); --card:rgba(255,255,255,.04); --card2:rgba(255,255,255,.06); --br:12px; }
+    @media (prefers-color-scheme:light){ :root{ --bg0:#f1f5f9; --bg1:#ffffff; --card:rgba(0,0,0,.05); --card2:rgba(0,0,0,.07); } }
+    *{box-sizing:border-box;} html,body{height:100%;margin:0;font:14px/1.55 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,'Helvetica Neue',Arial,sans-serif;background:radial-gradient(circle at 35% 40%,#1f2937 0%,var(--bg0) 70%) fixed;color:#94a3b8;display:flex;align-items:center;justify-content:center;padding:28px;}
+    @media (prefers-color-scheme:light){ html,body{background:radial-gradient(circle at 35% 40%,#e2e8f0 0%,var(--bg0) 70%);} }
+    .wrap{width:100%;max-width:760px;display:grid;gap:26px;}
+    h1{margin:0;font-size:17px;font-weight:600;letter-spacing:.5px;background:linear-gradient(90deg,#fff,#94a3b8);-webkit-background-clip:text;color:transparent;filter:drop-shadow(0 4px 14px rgba(0,0,0,.4));}
+    @media (prefers-color-scheme:light){ h1{background:linear-gradient(90deg,#1e293b,#475569);} }
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;}
+    .card{height:92px;border-radius:var(--br);background:linear-gradient(135deg,var(--card),var(--card2));position:relative;overflow:hidden;box-shadow:0 2px 6px -2px rgba(0,0,0,.55),inset 0 0 0 1px rgba(255,255,255,.04);} 
+    .card::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);animation:sh 2.2s infinite;}
+    @keyframes sh{0%{transform:translateX(-100%);}60%{transform:translateX(60%);}100%{transform:translateX(110%);}}
+    .hero{height:170px;display:flex;align-items:center;justify-content:center;border-radius:var(--br);background:var(--grad);position:relative;overflow:hidden;box-shadow:0 10px 28px -8px rgba(37,99,235,.6);} 
+    .hero::before{content:"";position:absolute;width:420px;height:420px;background:radial-gradient(circle at 30% 30%,rgba(255,255,255,.5),transparent 70%);mix-blend-mode:overlay;filter:blur(40px);opacity:.55;animation:pulse 8s linear infinite;} 
+    @keyframes pulse{0%,100%{transform:scale(.95) rotate(0deg);}50%{transform:scale(1.05) rotate(180deg);} }
+    .hero span{font-size:18px;font-weight:600;letter-spacing:1px;color:#fff;text-shadow:0 4px 18px rgba(0,0,0,.55);} 
+    footer{font-size:11px;opacity:.7;text-align:center;}
+  </style></head><body><div class='wrap'>
+    <div class='hero'><span>等待你的第一条指令…</span></div>
+    <div class='grid'>
+      <div class='card'></div><div class='card'></div><div class='card'></div><div class='card'></div>
+      <div class='card'></div><div class='card'></div><div class='card'></div><div class='card'></div>
+    </div>
+    <footer>提示: 在左侧输入你想要的页面结构、布局或样式，然后回车。</footer>
+  </div></body></html>`;
+  function setInitialPreview(){ if(!lastCode){ iframe.srcdoc = PLACEHOLDER_HTML; } }
+  function markPreviewGenerating(){ previewFrameContainer?.classList.add('generating'); }
+  function unmarkPreviewGenerating(){ previewFrameContainer?.classList.remove('generating'); }
   function clearStream(){
     streamOutputEl.textContent = '';
   }
@@ -390,6 +437,7 @@
     // 先渲染用户消息，再渲染助手占位，使“处理中”状态出现在该用户指令下方
     addMessage('user', text);
     const assistantDiv = addMessage('assistant', '处理中…');
+  markPreviewGenerating();
     clearStream();
     setStatus('生成中…', true);
     sendBtn.disabled = true; input.disabled = true;
@@ -422,10 +470,11 @@
         }
       };
       ws.onerror = () => { if(!rawBuffer){ assistantDiv.innerHTML = `<span class='role'>Agent</span>连接错误`; } setStatus('连接错误'); sendBtn.disabled=false; input.disabled=false; };
-      ws.onclose = () => { if(!finished){ setStatus('中断'); sendBtn.disabled=false; input.disabled=false; } };
+      ws.onclose = () => { unmarkPreviewGenerating(); if(!finished){ setStatus('中断'); sendBtn.disabled=false; input.disabled=false; } else { unmarkPreviewGenerating(); } };
     } catch(e){
       assistantDiv.innerHTML = `<span class='role'>Agent</span>异常: ${escapeHtml(e.message)}`;
       setStatus('异常'); sendBtn.disabled=false; input.disabled=false;
+      unmarkPreviewGenerating();
     }
   }
 
@@ -516,6 +565,16 @@
     bindEvents();
     // 预建会话 (失败不阻塞，首次发送时再补建)
     createSession().catch(()=> setStatus('待发送第一条指令后再试'));
+    setInitialPreview();
+    // 注入 overlay（一次）
+    if(previewFrameContainer && !previewFrameContainer.querySelector('.preview-overlay')){
+      const ov = document.createElement('div');
+      ov.className = 'preview-overlay';
+      ov.innerHTML = `<div class="spinner"></div><div style="font-size:13px;letter-spacing:.5px;">生成中…</div><div class="skeleton-bars" style="width:200px;">`+
+        `<span></span><span></span><span></span><span></span>`+
+      `</div>`;
+      previewFrameContainer.appendChild(ov);
+    }
   })();
   </script>
 </body>
