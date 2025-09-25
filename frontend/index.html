@@ -84,10 +84,12 @@
     nav.primary-nav a { padding:8px 12px; border-radius:var(--radius-sm); font-size:13px; font-weight:500; line-height:1; position:relative; }
     nav.primary-nav a:hover { background:var(--color-bg-alt); }
     .btn-inline { appearance:none; cursor:pointer; border:1px solid var(--color-border); background:var(--color-bg-alt); color:var(--color-text); padding:8px 14px; font-weight:500; border-radius:var(--radius-sm); display:inline-flex; align-items:center; gap:6px; position:relative; transition: background var(--trans-fast), border-color var(--trans-fast), color var(--trans-fast); }
-  .btn-inline:hover { background:var(--color-surface); }
-  .btn-accent { background:var(--gradient-accent); border:none; color:#fff; box-shadow:0 4px 14px -2px rgba(var(--color-accent-rgb)/.5); transition:filter var(--trans-fast), box-shadow var(--trans-fast); }
-  .btn-accent:hover { filter:brightness(1.07); }
-  :root[data-theme="light"] .btn-accent:hover { filter:none; opacity:.96; box-shadow:0 3px 10px -2px rgba(var(--color-accent-rgb)/.4),0 0 0 1px rgba(var(--color-accent-rgb)/.25) inset; }
+  /* 普通按钮悬停背景，但不影响强调按钮（accent） */
+  .btn-inline:hover:not(.btn-accent) { background:var(--color-surface); }
+  .btn-accent { background:var(--gradient-accent); border:none; color:#fff; box-shadow:0 4px 14px -2px rgba(var(--color-accent-rgb)/.5); transition:filter var(--trans-fast), box-shadow var(--trans-fast), background var(--trans-fast); }
+  /* 强调按钮悬停保持渐变，防止在亮色主题下被通用 hover 规则覆盖为白底白字 */
+  .btn-accent:hover { background:var(--gradient-accent); filter:brightness(1.05); color:#fff; }
+  :root[data-theme="light"] .btn-accent:hover { filter:none; opacity:.97; background:var(--gradient-accent); box-shadow:0 3px 10px -2px rgba(var(--color-accent-rgb)/.4),0 0 0 1px rgba(var(--color-accent-rgb)/.25) inset; }
   .btn-accent:active { scale:.97; }
     .btn-inline:focus-visible { outline:var(--focus-outline); outline-offset:2px; }
 
