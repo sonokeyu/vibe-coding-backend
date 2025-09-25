@@ -31,9 +31,13 @@
   <div class="column left">
     <h1>Chat / 指令</h1>
     <div id="messages"></div>
+    <div id="firstHint" style="display:none; background:#1e293b; border:1px solid #334155; padding:6px 10px; border-radius:6px; font-size:12px; line-height:1.5; margin-bottom:8px;">
+      <strong>提示:</strong> 描述你想要的效果。例如点击下方示例。Enter 发送，Shift+Enter 换行。
+      <button id="closeHint" style="float:right; background:transparent; color:#94a3b8; border:none; cursor:pointer;">×</button>
+    </div>
     <form id="chat-form">
-      <textarea id="input" placeholder="描述你想要的页面或修改，如：添加一个暗色导航栏..."></textarea>
-      <div style="display:flex; flex-direction:column; gap:4px; width:140px;">
+      <textarea id="input" placeholder="输入你的想法吧…"></textarea>
+      <div style="display:flex; flex-direction:column; gap:4px; width:150px;">
         <button type="submit">发送</button>
         <label style="font-size:11px; display:flex; gap:4px; align-items:center; cursor:pointer;">
           <input type="checkbox" id="streamToggle" /> 流式
@@ -43,6 +47,9 @@
         </label>
       </div>
     </form>
+    <div id="examples" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">
+      <!-- example buttons injected by JS -->
+    </div>
     <div id="status"></div>
     <div style="margin-top:4px; font-size:12px; color:var(--muted);">
       首次会自动创建 session。返回代码会完全替换右侧预览。
@@ -69,6 +76,41 @@ const iframe = document.getElementById('preview');
 const diffEl = document.getElementById('diff');
 const sessionTag = document.getElementById('sessionTag');
 const downloadBtn = document.getElementById('downloadBtn');
+const examplesEl = document.getElementById('examples');
+const firstHintEl = document.getElementById('firstHint');
+const closeHintBtn = document.getElementById('closeHint');
+
+const EXAMPLES = [
+  '创建一个简洁的登录页，包含邮箱输入和提交按钮',
+  '添加顶部固定导航栏，含 Logo 和三个菜单项',
+  '把背景改成柔和的线性渐变，并增加三列卡片',
+  '在页面底部加一个暗色 footer，含版权文字',
+];
+
+function renderExamples(){
+  EXAMPLES.forEach(txt => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = txt.length>22 ? txt.slice(0,22)+'…' : txt;
+    b.title = txt;
+    b.style.cssText = 'background:#1e293b;border:1px solid #334155;color:#cbd5e1;padding:4px 8px;font-size:11px;border-radius:4px;cursor:pointer;';
+    b.addEventListener('click', ()=>{
+      input.value = txt;
+      input.focus();
+    });
+    examplesEl.appendChild(b);
+  });
+}
+
+function initFirstHint(){
+  if(!localStorage.getItem('vc_first_hint_dismissed')){
+    firstHintEl.style.display='block';
+  }
+  closeHintBtn.addEventListener('click', ()=>{
+    firstHintEl.style.display='none';
+    localStorage.setItem('vc_first_hint_dismissed','1');
+  });
+}
 
 function addMessage(role, content) {
   const div = document.createElement('div');
@@ -210,6 +252,17 @@ form.addEventListener('submit', e => {
   sendMessage(text);
 });
 
+// Enter to send, Shift+Enter for newline
+input.addEventListener('keydown', e => {
+  if(e.key === 'Enter' && !e.shiftKey){
+    const text = input.value.trim();
+    if(text){
+      e.preventDefault();
+      sendMessage(text);
+    }
+  }
+});
+
 downloadBtn.addEventListener('click', () => {
   if(!lastCode) return;
   const blob = new Blob([lastCode], {type:'text/html'});
@@ -222,6 +275,8 @@ downloadBtn.addEventListener('click', () => {
 
 // Auto-create session on load (ignore errors; lazily retried if needed)
 createSession().catch(()=>status('待发送第一条指令后再试'));
+renderExamples();
+initFirstHint();
 </script>
 </body>
 </html>
