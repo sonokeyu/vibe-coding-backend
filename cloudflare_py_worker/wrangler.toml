@@ -1,0 +1,14 @@
+name = "vibe-coding-python-worker"
+main = "worker.py"
+compatibility_date = "2024-09-25"
+# Python workers still beta; flag name may change—verify with `wrangler --help`.
+compatibility_flags = ["python_workers"]
+
+[vars]
+MODEL = "deepseek/deepseek-chat-v3-0324"
+GENERATION_MAX_TOKENS = "2000"
+TEMPERATURE = "0.2"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+# Secrets (set via CLI, not committed):
+#   OPENROUTER_API_KEY
