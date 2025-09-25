@@ -47,7 +47,7 @@ def iter_models() -> Iterable[str]:
 
 
 def generate_code(session: SessionData, user_message: str) -> tuple[str, str]:
-    """Return (assistant_text, full_code)."""
+    """Return (assistant_text, full_code) using FULL existing code (no truncation)."""
     existing_code = session.code or ""
     user_content = prompts.USER_INSTRUCTION_TEMPLATE.format(
         message=user_message, existing_code=existing_code

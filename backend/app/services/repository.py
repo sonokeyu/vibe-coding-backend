@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from typing import List, Optional
+from datetime import datetime
 
 
 @dataclass
@@ -16,6 +17,18 @@ class SessionData:
     id: str
     messages: List[ChatMessage] = field(default_factory=list)
     code: Optional[str] = None
+    versions: List["CodeVersion"] = field(default_factory=list)
+    current_version: int = 0  # 0 means no versions yet
+
+
+@dataclass
+class CodeVersion:
+    version: int
+    code: str
+    diff: str
+    summary: Optional[str]
+    created_at: datetime
+    origin: str  # e.g. "generation" or "rollback"
 
 
 class InMemoryRepo:

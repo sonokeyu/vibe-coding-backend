@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from app.services.repository import repo
+from app.services.repository import repo, CodeVersion
 from app.graphs.agent import run_generation
 from app.services.llm import LLMAccessError
 
@@ -23,6 +23,7 @@ class MessageResponse(BaseModel):
     assistant_message_raw: str
     code: str
     diff: str
+    version: int
 
 
 @router.post("/sessions", response_model=CreateSessionResponse)
@@ -56,6 +57,7 @@ def get_code(session_id: str):
 from app.services import llm as llm_service, diff as diff_service
 from app.core import prompts
 from langchain_core.messages import SystemMessage, HumanMessage
+from datetime import datetime
 
 
 @router.websocket("/ws/sessions/{session_id}")
@@ -110,9 +112,22 @@ async def websocket_session(websocket: WebSocket, session_id: str):
         repo.add_message(session.id, "assistant", raw_full)
         repo.update_code(session.id, code)
         diff_text = diff_service.unified_diff(previous_code, code)
+        # Versioning (mirror logic from run_generation)
+        new_version_number = session.current_version + 1
+        version_entry = CodeVersion(
+            version=new_version_number,
+            code=code,
+            diff=diff_text,
+            summary=None,
+            created_at=datetime.utcnow(),
+            origin="generation",
+        )
+        session.versions.append(version_entry)
+        session.current_version = new_version_number
         await websocket.send_json({"type": "assistant_message_complete", "raw": raw_full})
         await websocket.send_json({"type": "code", "code": code})
         await websocket.send_json({"type": "diff", "diff": diff_text})
+        await websocket.send_json({"type": "version", "version": new_version_number})
         await websocket.send_json({"type": "final"})
     except WebSocketDisconnect:
         return
@@ -121,3 +136,44 @@ async def websocket_session(websocket: WebSocket, session_id: str):
             await websocket.close()
         except Exception:
             pass
+
+
+# ---- Rollback Endpoint (MVP) ----
+@router.post("/sessions/{session_id}/rollback")
+def rollback_session(session_id: str, to: int):  # 'to' is target version number
+    try:
+        session = repo.get_session(session_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="session_not_found")
+    target = next((v for v in session.versions if v.version == to), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail="version_not_found")
+    if session.current_version == target.version:
+        return {
+            "version": session.current_version,
+            "code": session.code or "",
+            "diff": "",
+            "rolled_back": False,
+        }
+    previous_code = session.code or ""
+    # Apply rollback
+    session.code = target.code
+    diff_text = diff_service.unified_diff(previous_code, target.code)
+    new_version_number = session.current_version + 1
+    rollback_version = CodeVersion(
+        version=new_version_number,
+        code=target.code,
+        diff=diff_text,
+        summary=f"rollback to {target.version}",
+        created_at=datetime.utcnow(),
+        origin="rollback",
+    )
+    session.versions.append(rollback_version)
+    session.current_version = new_version_number
+    return {
+        "version": new_version_number,
+        "code": target.code,
+        "diff": diff_text,
+        "rolled_back": True,
+        "rolled_back_from": target.version,
+    }

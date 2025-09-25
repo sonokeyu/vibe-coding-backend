@@ -214,6 +214,14 @@
       <div class="preview-wrapper">
         <div class="preview-toolbar" aria-label="预览工具栏">
           <div class="session-tag" title="当前 Session ID 前 8 位" id="sessionTagDup">...</div>
+          <div class="session-tag" title="当前版本号" id="versionTag">v0</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+            <button id="rollbackPrevBtn" type="button" class="btn-inline" title="回滚到上一版本">上一版</button>
+            <form id="rollbackForm" style="display:flex;gap:4px;align-items:center;margin:0;">
+              <input type="number" id="rollbackVersionInput" min="1" placeholder="版本" style="width:70px;padding:4px 6px;font-size:12px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:4px;color:var(--color-text);" />
+              <button class="btn-inline" type="submit" style="font-size:12px;padding:6px 10px;">回滚</button>
+            </form>
+          </div>
           <button id="inspectToggleBtn" type="button" class="btn-inline" aria-pressed="false" title="检查/选择预览元素">检查元素</button>
         </div>
         <iframe id="preview" title="代码预览" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
@@ -231,9 +239,10 @@
      功能脚本 (模块化 / ES6+)
      包含: 会话管理, 消息发送(含流式), UI/状态更新, 主题切换, 示例注入, 可访问性增强
      ============================================================= */
-  const API_BASE = localStorage.getItem('vc_api_base') || 'http://115.190.179.122:80';
+  const API_BASE = localStorage.getItem('vc_api_base') || 'http://localhost:80';
   let sessionId = null;       // 后端会话 ID
   let lastCode = '';          // 最近一次生成的完整代码
+  let currentVersion = 0;     // 当前版本号（后端返回）
   // Diff 已移除，改为独立流式输出区域
 
   // =============== DOM 引用缓存 ===============
@@ -253,6 +262,10 @@
   const themeToggleBtn = qs('#themeToggle');
   const sendBtn = qs('#sendBtn');
   const inspectToggleBtn = qs('#inspectToggleBtn');
+  const versionTagEl = qs('#versionTag');
+  const rollbackPrevBtn = qs('#rollbackPrevBtn');
+  const rollbackForm = qs('#rollbackForm');
+  const rollbackVersionInput = qs('#rollbackVersionInput');
   let inspectActive = false; // 是否处于元素检查模式
 
   // =============== 示例指令 ===============
@@ -317,6 +330,24 @@
     sessionTag.textContent = shortId;
     sessionTagDup.textContent = shortId;
   }
+  function updateVersionTag(v){
+    currentVersion = v;
+    if(versionTagEl) versionTagEl.textContent = 'v'+v;
+  }
+  async function rollbackTo(version){
+    if(!sessionId || !version || version < 1) return;
+    setStatus('回滚中…', true);
+    try {
+      const r = await fetch(`${API_BASE}/sessions/${sessionId}/rollback?to=${version}`, { method:'POST' });
+      if(!r.ok){ setStatus('回滚失败'); return; }
+      const data = await r.json();
+      if(data.code){ updatePreview(data.code); }
+      if(typeof data.version === 'number'){ updateVersionTag(data.version); }
+      addMessage('assistant', `已回滚到版本 ${data.rolled_back_from || version} (当前版本: ${data.version})`);
+      setStatus('回滚完成');
+    } catch(e){ setStatus('回滚错误'); }
+    finally { statusEl.dataset.busy='false'; }
+  }
 
   // =============== 会话 & 消息 ===============
   async function createSession(){
@@ -359,6 +390,7 @@
             break;
           case 'assistant_message_complete': break;
           case 'code': updatePreview(msg.code); break;
+          case 'version': if(typeof msg.version==='number'){ updateVersionTag(msg.version); } break;
           case 'final':
             finished=true; assistantDiv.innerHTML = `<span class='role'>Agent</span>完成`; setStatus('完成'); sendBtn.disabled=false; input.disabled=false; input.value=''; input.focus(); ws.close(); break;
           case 'error':
@@ -437,6 +469,10 @@
       const { selector, text } = ev.data;
       appendStream(`\n[选中] ${selector}\n${text?text.slice(0,160):''}\n`);
     });
+    // 回滚上一版本
+    rollbackPrevBtn.addEventListener('click', () => { if(currentVersion > 1){ rollbackTo(currentVersion - 1); } });
+    // 指定版本回滚
+    rollbackForm.addEventListener('submit', e => { e.preventDefault(); const v = parseInt(rollbackVersionInput.value,10); if(!isNaN(v)){ rollbackTo(v); } });
   }
 
   // =============== 初始化流程 ===============
